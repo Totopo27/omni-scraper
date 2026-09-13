@@ -77,6 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
     clean_parser = subparsers.add_parser("clean", help="Clean transient cache files")
     clean_parser.add_argument("--dry-run", action="store_true", help="Simulate cleanup without deleting")
 
+    # 4. Scrape command
+    scrape_parser = subparsers.add_parser("scrape", help="Scrape content from a supported platform")
+    scrape_parser.add_argument("--platform", required=True, choices=["reddit", "hackernews"], help="Target platform adapter")
+    scrape_parser.add_argument("--target", required=True, help="Target subreddit, topic, or section (e.g. 'solana', 'python', 'top')")
+    scrape_parser.add_argument("--limit", type=int, default=10, help="Maximum items to extract (default: 10)")
+
     return parser
 
 
@@ -93,6 +99,9 @@ def main() -> None:
         handle_db(config, args)
     elif args.command == "clean":
         handle_clean(config, args)
+    elif args.command == "scrape":
+        from omni_scraper.cli.commands import handle_scrape
+        handle_scrape(config, args)
     else:
         parser.print_help()
         sys.exit(1)
