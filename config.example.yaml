@@ -1,0 +1,22 @@
+# Omni-Scraper Configuration Example
+
+browser:
+  headless: false
+  slow_mo_ms: 250
+  browser_type: "brave" # Options: brave, chrome, edge, chromium
+  user_data_dir: "./browser_profile"
+  executable_path: null
+  cdp_url: null # e.g. "http://localhost:9222" for Fortress or external Chromium
+  viewport:
+    width: 1280
+    height: 800
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+
+storage:
+  db_path: "./data/omni_scraper.db"
+  retention_days: 30
+
+scraping:
+  max_scroll_attempts: 10
+  scroll_delay_min: 1.0
+  scroll_delay_max: 2.5
