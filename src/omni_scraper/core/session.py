@@ -22,6 +22,8 @@ try {
 } catch (e) {}
 """
 
+STEALTH_JS = SANITIZED_STEALTH_JS
+
 
 def resolve_browser_executable(browser_type: str, explicit_path: Optional[str] = None) -> Optional[str]:
     """Find the browser binary on disk or return None to let Playwright use its default."""
@@ -67,7 +69,8 @@ class BrowserSession:
 
     def __init__(self, config: BrowserConfig):
         self.config = config
-        self.profile_path = Path(config.user_data_dir).resolve()
+        profile_dir = getattr(config, "user_data_dir", None) or getattr(config, "profile_dir", "./browser_profile")
+        self.profile_path = Path(profile_dir).resolve()
         self.profile_path.mkdir(parents=True, exist_ok=True)
         self._playwright = None
         self._context: Optional[BrowserContext] = None
