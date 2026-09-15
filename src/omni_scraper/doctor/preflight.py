@@ -1,10 +1,14 @@
 """Pre-flight diagnostic routines to verify browser, CDP endpoints, and storage."""
 
-import os
+import json
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Tuple
+from urllib.parse import urlsplit
+
+from playwright.sync_api import sync_playwright
 from rich.console import Console
 from rich.table import Table
 
@@ -27,24 +31,54 @@ def check_browser_binary(config: OmniConfig) -> Tuple[bool, str]:
     if config.browser.cdp_url:
         return True, f"Modo CDP activo ({config.browser.cdp_url}), no requiere binario local"
 
+    if config.browser.executable_path and not Path(config.browser.executable_path).is_file():
+        return False, f"El ejecutable configurado no existe: {config.browser.executable_path}"
+
     resolved = resolve_browser_executable(
         config.browser.browser_type, config.browser.executable_path
     )
-    if resolved and os.path.exists(resolved):
+    if resolved and Path(resolved).is_file():
         return True, f"Encontrado: {resolved}"
-    return False, f"No se encontró binario para '{config.browser.browser_type}'. Usará fallback de Playwright si está instalado."
+
+    try:
+        with sync_playwright() as playwright:
+            managed_browser = Path(playwright.chromium.executable_path)
+        if managed_browser.is_file():
+            return True, f"Chromium administrado por Playwright: {managed_browser}"
+    except Exception as exc:
+        return False, f"No se pudo comprobar Chromium de Playwright: {exc}"
+
+    return False, f"No se encontró un navegador utilizable para '{config.browser.browser_type}'"
 
 
 def check_cdp_connectivity(cdp_url: str) -> Tuple[bool, str]:
-    """Check if the external CDP endpoint is reachable."""
+    """Check that the endpoint exposes valid Chrome DevTools metadata."""
     try:
-        req = urllib.request.Request(f"{cdp_url.rstrip('/')}/json/version", headers={"User-Agent": "OmniScraperDoctor"})
+        req = urllib.request.Request(
+            f"{cdp_url.rstrip('/')}/json/version",
+            headers={"User-Agent": "OmniScraperDoctor"},
+        )
         with urllib.request.urlopen(req, timeout=3.0) as resp:
-            if resp.status == 200:
-                return True, f"Conexión exitosa a CDP en {cdp_url}"
+            if resp.status != 200:
+                return False, f"CDP respondió con HTTP {resp.status} desde {cdp_url}"
+
+            metadata = json.load(resp)
+            websocket_url = (
+                metadata.get("webSocketDebuggerUrl")
+                if isinstance(metadata, dict)
+                else None
+            )
+            websocket_endpoint = urlsplit(websocket_url) if isinstance(websocket_url, str) else None
+            if (
+                websocket_endpoint is None
+                or websocket_endpoint.scheme not in {"ws", "wss"}
+                or not websocket_endpoint.netloc
+            ):
+                return False, f"La respuesta de {cdp_url} no contiene un endpoint CDP válido"
+
+            return True, f"Conexión CDP validada en {cdp_url}"
     except Exception as e:
         return False, f"No se pudo conectar a {cdp_url}: {e}"
-    return False, f"Respuesta no esperada desde {cdp_url}"
 
 
 def check_directory_writable(dir_path: str) -> Tuple[bool, str]:
@@ -52,9 +86,8 @@ def check_directory_writable(dir_path: str) -> Tuple[bool, str]:
     p = Path(dir_path).resolve()
     try:
         p.mkdir(parents=True, exist_ok=True)
-        test_file = p / ".write_test"
-        test_file.write_text("ok")
-        test_file.unlink()
+        with tempfile.NamedTemporaryFile(prefix=".omni_scraper_write_test_", dir=p):
+            pass
         return True, f"Permisos de escritura OK: {p}"
     except Exception as e:
         return False, f"Error de escritura en {p}: {e}"
@@ -62,13 +95,16 @@ def check_directory_writable(dir_path: str) -> Tuple[bool, str]:
 
 def check_database_health(db_path: str) -> Tuple[bool, str]:
     """Verify database initialization and query execution."""
+    repo = None
     try:
         repo = SQLiteRepository(db_path)
         stats = repo.get_stats()
-        repo.close()
         return True, f"Base de datos accesible. Total ítems: {stats['total_items']}"
     except Exception as e:
         return False, f"Fallo al conectar con la base de datos: {e}"
+    finally:
+        if repo is not None:
+            repo.close()
 
 
 def run_doctor(config: OmniConfig) -> bool:
@@ -82,7 +118,8 @@ def run_doctor(config: OmniConfig) -> bool:
 
     # 1. Browser Binary Check
     b_ok, b_msg = check_browser_binary(config)
-    table.add_row("Navegador Local", "✅ OK" if b_ok else "⚠️ AVISO", b_msg)
+    all_ok = all_ok and b_ok
+    table.add_row("Navegador Local", "✅ OK" if b_ok else "❌ ERROR", b_msg)
 
     # 2. CDP Connectivity (if configured)
     if config.browser.cdp_url:
