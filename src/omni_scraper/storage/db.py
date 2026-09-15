@@ -70,31 +70,63 @@ class SQLiteRepository:
             )
 
     def insert_items(self, items: List[ScrapedItem]) -> int:
-        """Insert items into the database. Skips items that already exist. Returns inserted count."""
+        """Insert new items and refresh existing items, returning the new-item count."""
         if not items:
             return 0
 
         conn = self._get_connection()
-        inserted_count = 0
-        with conn:
-            for item in items:
-                cursor = conn.execute(
-                    """
-                    INSERT OR IGNORE INTO scraped_items (platform, item_id, url, payload, scraped_at)
-                    VALUES (?, ?, ?, ?, ?);
-                    """,
-                    (
-                        item.platform,
-                        item.item_id,
-                        item.url,
-                        json.dumps(item.payload, ensure_ascii=False),
-                        item.scraped_at,
-                    ),
-                )
-                if cursor.rowcount > 0:
-                    inserted_count += 1
+        item_keys = {(item.platform, item.item_id) for item in items}
+        existing_keys = set()
+        values = [
+            (
+                item.platform,
+                item.item_id,
+                item.url,
+                json.dumps(item.payload, ensure_ascii=False),
+                item.scraped_at,
+            )
+            for item in items
+        ]
 
-        return inserted_count
+        # Query existing keys in bounded batches so the return value keeps its
+        # original meaning: number of newly inserted records, not rows updated.
+        items_by_platform = {}
+        for platform, item_id in item_keys:
+            items_by_platform.setdefault(platform, []).append(item_id)
+
+        with conn:
+            # Serialize the existence check and UPSERT with concurrent writers
+            # so the returned new-item count matches the committed transaction.
+            conn.execute("BEGIN IMMEDIATE;")
+            for platform, item_ids in items_by_platform.items():
+                for offset in range(0, len(item_ids), 500):
+                    batch = item_ids[offset : offset + 500]
+                    placeholders = ", ".join("?" for _ in batch)
+                    rows = conn.execute(
+                        f"""
+                        SELECT platform, item_id
+                        FROM scraped_items
+                        WHERE platform = ? AND item_id IN ({placeholders});
+                        """,
+                        (platform, *batch),
+                    ).fetchall()
+                    existing_keys.update(
+                        (row["platform"], row["item_id"]) for row in rows
+                    )
+
+            conn.executemany(
+                """
+                INSERT INTO scraped_items (platform, item_id, url, payload, scraped_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(platform, item_id) DO UPDATE SET
+                    url = excluded.url,
+                    payload = excluded.payload,
+                    scraped_at = excluded.scraped_at;
+                """,
+                values,
+            )
+
+        return len(item_keys - existing_keys)
 
     def get_items(self, platform: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         """Retrieve items, optionally filtered by platform."""
@@ -105,7 +137,7 @@ class SQLiteRepository:
             query += " WHERE platform = ?"
             params.append(platform)
 
-        query += " ORDER BY scraped_at DESC LIMIT ?"
+        query += " ORDER BY scraped_at DESC, id DESC LIMIT ?"
         params.append(limit)
 
         cursor = conn.execute(query, params)

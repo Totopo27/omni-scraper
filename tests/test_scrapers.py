@@ -1,5 +1,6 @@
 """Unit tests for platform scrapers (Reddit, HackerNews) and registry."""
 
+import hashlib
 import unittest
 from unittest.mock import MagicMock
 
@@ -27,6 +28,7 @@ class TestPlatformScrapers(unittest.TestCase):
 
     def test_reddit_scraper_extract(self):
         scraper = RedditScraper()
+        scraper.actions = MagicMock()
         mock_page = MagicMock()
         mock_page.evaluate.return_value = [
             {
@@ -53,6 +55,35 @@ class TestPlatformScrapers(unittest.TestCase):
         self.assertEqual(items[0].item_id, "t3_123")
         self.assertEqual(items[0].payload["title"], "Anthropic releases new model")
         self.assertEqual(items[0].payload["score"], 450)
+
+    def test_reddit_fallback_id_uses_canonical_url_hash(self):
+        scraper = RedditScraper()
+        scraper.actions = MagicMock()
+        mock_page = MagicMock()
+        mock_page.evaluate.return_value = [
+            {
+                "id": "",
+                "title": "Stable fallback identity",
+                "author": "author",
+                "score": 0,
+                "comments": 0,
+                "url": "/r/python/comments/abc123/example/?utm_source=test#fragment",
+            }
+        ]
+
+        item = scraper.extract(mock_page, limit=1)[0]
+        canonical_url = "https://www.reddit.com/r/python/comments/abc123/example"
+        expected_hash = hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()
+
+        self.assertEqual(item.url, canonical_url)
+        self.assertEqual(item.item_id, f"reddit_url_{expected_hash}")
+
+        mock_page.evaluate.return_value[0]["url"] = (
+            "http://old.reddit.com/r/python/comments/abc123/example/?ref=duplicate"
+        )
+        equivalent_item = scraper.extract(mock_page, limit=1)[0]
+        self.assertEqual(equivalent_item.url, canonical_url)
+        self.assertEqual(equivalent_item.item_id, item.item_id)
 
     def test_hackernews_scraper_navigate(self):
         scraper = HackerNewsScraper()

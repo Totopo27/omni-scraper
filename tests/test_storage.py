@@ -49,15 +49,25 @@ class TestSQLiteRepository(unittest.TestCase):
         inserted = self.repo.insert_items(items)
         self.assertEqual(inserted, 2)
 
-        # Duplicate insertion attempt
-        duplicated = self.repo.insert_items(items)
+        # A duplicate refreshes mutable content without increasing the new-item count.
+        updated_item = items[0].model_copy(
+            update={
+                "url": "https://reddit.com/r/python/1-updated",
+                "payload": {"title": "Python 3.13 released", "score": 999},
+            }
+        )
+        duplicated = self.repo.insert_items([updated_item])
         self.assertEqual(duplicated, 0)
 
         # Fetch and verify
         fetched = self.repo.get_items(platform="reddit")
         self.assertEqual(len(fetched), 2)
-        self.assertEqual(fetched[0]["item_id"], "item-1")
-        self.assertEqual(fetched[0]["payload"]["score"], 450)
+        fetched_by_id = {item["item_id"]: item for item in fetched}
+        self.assertEqual(fetched_by_id["item-1"]["payload"]["score"], 999)
+        self.assertEqual(
+            fetched_by_id["item-1"]["url"],
+            "https://reddit.com/r/python/1-updated",
+        )
 
     def test_record_run_and_get_runs(self):
         run_id = self.repo.record_run(

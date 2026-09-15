@@ -1,8 +1,51 @@
 """Reddit platform scraper adapter."""
 
+import hashlib
 from typing import Any, List
+from urllib.parse import urljoin, urlsplit, urlunsplit
+
 from omni_scraper.core.base_scraper import BaseScraper, ScrapedItem, ScraperRegistry
 from omni_scraper.core.actions import HumanActions
+
+
+def _canonicalize_reddit_url(raw_url: str) -> str:
+    """Return a stable Reddit URL without credentials, query parameters, or fragments."""
+    if not raw_url:
+        return ""
+
+    try:
+        parsed = urlsplit(urljoin("https://www.reddit.com/", raw_url.strip()))
+        hostname = (parsed.hostname or "").lower()
+        if parsed.scheme not in {"http", "https"}:
+            return ""
+        if (
+            hostname != "redd.it"
+            and hostname != "reddit.com"
+            and not hostname.endswith(".reddit.com")
+        ):
+            return ""
+
+        canonical_host = (
+            "www.reddit.com"
+            if hostname == "reddit.com" or hostname.endswith(".reddit.com")
+            else hostname
+        )
+        if parsed.port and not (
+            (parsed.scheme == "http" and parsed.port == 80)
+            or (parsed.scheme == "https" and parsed.port == 443)
+        ):
+            canonical_host = f"{canonical_host}:{parsed.port}"
+
+        canonical_path = parsed.path.rstrip("/") or "/"
+        return urlunsplit(("https", canonical_host, canonical_path, "", ""))
+    except ValueError:
+        return ""
+
+
+def _item_id_from_url(canonical_url: str) -> str:
+    """Build a deterministic fallback ID from a canonical Reddit URL."""
+    digest = hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()
+    return f"reddit_url_{digest}"
 
 
 class RedditScraper(BaseScraper):
@@ -22,6 +65,9 @@ class RedditScraper(BaseScraper):
 
     def extract(self, page: Any, limit: int = 20) -> List[ScrapedItem]:
         """Extract posts up to the requested limit, scrolling if needed."""
+        if limit <= 0:
+            return []
+
         # Optional scroll to load more posts if limit > 5
         scroll_passes = max(1, (limit // 8))
         self.actions.human_scroll(page, target_scrolls=scroll_passes, delay_min=1.0, delay_max=2.0)
@@ -41,7 +87,7 @@ class RedditScraper(BaseScraper):
                     const permalink = post.getAttribute('permalink') || '';
                     const fullUrl = permalink ? (permalink.startsWith('http') ? permalink : 'https://www.reddit.com' + permalink) : '';
 
-                    if (id && title) {
+                    if (title && (id || fullUrl)) {
                         results.push({
                             id: id,
                             title: title,
@@ -57,7 +103,7 @@ class RedditScraper(BaseScraper):
 
             // Strategy B: Fallback to article elements or post containers
             const articles = document.querySelectorAll('article, div[data-testid="post-container"]');
-            articles.forEach((art, idx) => {
+            articles.forEach(art => {
                 const titleEl = art.querySelector('h1, h2, h3, a[data-click-id="body"]');
                 const title = titleEl ? titleEl.innerText.trim() : '';
                 const authorEl = art.querySelector('a[href*="/user/"]');
@@ -65,9 +111,9 @@ class RedditScraper(BaseScraper):
                 const linkEl = art.querySelector('a[href*="/comments/"]');
                 const href = linkEl ? linkEl.getAttribute('href') : '';
                 const fullUrl = href ? (href.startsWith('http') ? href : 'https://www.reddit.com' + href) : '';
-                const id = art.getAttribute('id') || `reddit_post_${idx}`;
+                const id = art.getAttribute('id') || '';
 
-                if (title) {
+                if (title && (id || fullUrl)) {
                     results.push({
                         id: id,
                         title: title,
@@ -85,12 +131,18 @@ class RedditScraper(BaseScraper):
         raw_items = page.evaluate(js_script) or []
         items: List[ScrapedItem] = []
         for raw in raw_items[:limit]:
-            item_id = str(raw.get("id") or f"reddit_{len(items)}")
+            canonical_url = _canonicalize_reddit_url(str(raw.get("url") or ""))
+            item_id = str(raw.get("id") or "").strip()
+            if not item_id:
+                if not canonical_url:
+                    continue
+                item_id = _item_id_from_url(canonical_url)
+
             items.append(
                 ScrapedItem(
                     item_id=item_id,
                     platform=self.platform_name,
-                    url=raw.get("url") or "",
+                    url=canonical_url,
                     payload={
                         "title": raw.get("title", ""),
                         "author": raw.get("author", ""),
