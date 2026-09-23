@@ -22,6 +22,12 @@ class RedditScraper(BaseScraper):
 
     def extract(self, page: Any, limit: int = 20) -> List[ScrapedItem]:
         """Extract posts up to the requested limit, scrolling if needed."""
+        # Optional wait for Reddit main container or posts to mount
+        try:
+            page.wait_for_selector("shreddit-post, article, div[data-testid='post-container']", timeout=5000)
+        except Exception:
+            pass
+
         # Optional scroll to load more posts if limit > 5
         scroll_passes = max(1, (limit // 8))
         self.actions.human_scroll(page, target_scrolls=scroll_passes, delay_min=1.0, delay_max=2.0)

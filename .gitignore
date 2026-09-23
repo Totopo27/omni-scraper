@@ -41,6 +41,7 @@ data/
 *.sqlite3
 
 # Environment & IDE
+.atl/
 .env
 .env.local
 .vscode/

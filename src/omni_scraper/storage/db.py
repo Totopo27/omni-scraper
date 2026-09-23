@@ -19,6 +19,12 @@ class SQLiteRepository:
         self._conn: Optional[sqlite3.Connection] = None
         self._init_db()
 
+    def __enter__(self) -> "SQLiteRepository":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
+
     def _get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
             self._conn = sqlite3.connect(str(self.db_path), timeout=10.0)

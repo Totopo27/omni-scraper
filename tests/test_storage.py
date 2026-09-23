@@ -56,8 +56,11 @@ class TestSQLiteRepository(unittest.TestCase):
         # Fetch and verify
         fetched = self.repo.get_items(platform="reddit")
         self.assertEqual(len(fetched), 2)
-        self.assertEqual(fetched[0]["item_id"], "item-1")
-        self.assertEqual(fetched[0]["payload"]["score"], 450)
+        items_by_id = {item["item_id"]: item for item in fetched}
+        self.assertIn("item-1", items_by_id)
+        self.assertIn("item-2", items_by_id)
+        self.assertEqual(items_by_id["item-1"]["payload"]["score"], 450)
+        self.assertEqual(items_by_id["item-2"]["payload"]["score"], 120)
 
     def test_record_run_and_get_runs(self):
         run_id = self.repo.record_run(

@@ -21,6 +21,11 @@ class HackerNewsScraper(BaseScraper):
 
     def extract(self, page: Any, limit: int = 20) -> List[ScrapedItem]:
         """Extract stories up to the requested limit."""
+        try:
+            page.wait_for_selector("tr.athing", timeout=5000)
+        except Exception:
+            pass
+
         js_script = """
         () => {
             const results = [];
