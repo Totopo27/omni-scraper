@@ -12,7 +12,19 @@ class ViewportConfig(BaseModel):
     height: int = 800
 
 
+class TinyFishConfig(BaseModel):
+    api_key: Optional[str] = None
+    browser_api_url: str = "https://api.browser.tinyfish.ai"
+    fetch_api_url: str = "https://api.fetch.tinyfish.ai"
+    timeout_seconds: int = 60
+
+    def get_api_key(self) -> Optional[str]:
+        """Resolve API key from explicit config or TINYFISH_API_KEY environment variable."""
+        return self.api_key or os.environ.get("TINYFISH_API_KEY")
+
+
 class BrowserConfig(BaseModel):
+    provider: str = "local"  # "local" or "tinyfish"
     headless: bool = False
     slow_mo_ms: int = 250
     browser_type: str = "brave"  # brave, chrome, edge, chromium
@@ -42,6 +54,7 @@ class OmniConfig(BaseModel):
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     scraping: ScrapingConfig = Field(default_factory=ScrapingConfig)
+    tinyfish: TinyFishConfig = Field(default_factory=TinyFishConfig)
 
 
 def load_config(config_path: Optional[str] = None) -> OmniConfig:

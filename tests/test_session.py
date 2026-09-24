@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from omni_scraper.config import BrowserConfig
+from omni_scraper.config import BrowserConfig, TinyFishConfig
 from omni_scraper.core.session import BrowserSession, SANITIZED_STEALTH_JS, resolve_browser_executable
 
 
@@ -70,6 +70,52 @@ class TestBrowserSession(unittest.TestCase):
         session.close()
         mock_browser.close.assert_called_once()
         mock_pw.stop.assert_called_once()
+
+    @patch("omni_scraper.core.session.TinyFishClient")
+    @patch("omni_scraper.core.session.sync_playwright")
+    def test_start_tinyfish_provider_connection(self, mock_playwright, mock_client_cls):
+        mock_pw = MagicMock()
+        mock_playwright.return_value.start.return_value = mock_pw
+        mock_browser = MagicMock()
+        mock_context = MagicMock()
+        mock_page = MagicMock()
+        mock_context.pages = [mock_page]
+        mock_browser.contexts = [mock_context]
+        mock_pw.chromium.connect_over_cdp.return_value = mock_browser
+
+        mock_client = MagicMock()
+        mock_client.create_browser_session.return_value = {
+            "session_id": "tf_session_999",
+            "cdp_url": "wss://browser.tinyfish.ai/cdp/tf_session_999",
+        }
+        mock_client_cls.return_value = mock_client
+
+        b_config = BrowserConfig(provider="tinyfish")
+        tf_config = TinyFishConfig(api_key="sk-test-tinyfish")
+        session = BrowserSession(b_config, tinyfish_config=tf_config)
+
+        context, page = session.start()
+
+        self.assertEqual(context, mock_context)
+        self.assertEqual(page, mock_page)
+        self.assertEqual(session._tinyfish_session_id, "tf_session_999")
+        mock_client.create_browser_session.assert_called_once()
+        mock_pw.chromium.connect_over_cdp.assert_called_once_with("wss://browser.tinyfish.ai/cdp/tf_session_999")
+
+        session.close()
+        mock_browser.close.assert_called_once()
+        mock_pw.stop.assert_called_once()
+
+    @patch("omni_scraper.core.session.sync_playwright")
+    def test_start_tinyfish_missing_key_raises_value_error(self, mock_playwright):
+        b_config = BrowserConfig(provider="tinyfish")
+        tf_config = TinyFishConfig(api_key=None)
+        session = BrowserSession(b_config, tinyfish_config=tf_config)
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(ValueError) as ctx:
+                session.start()
+            self.assertIn("TinyFish API key is required", str(ctx.exception))
 
     def test_resolve_browser_executable_fallback(self):
         # Even with nonexistent explicit path, fallback or None is returned cleanly

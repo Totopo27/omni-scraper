@@ -11,6 +11,13 @@ browser:
     width: 1280
     height: 800
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+  provider: "local" # Options: local, tinyfish
+
+tinyfish:
+  api_key: null # or set TINYFISH_API_KEY environment variable
+  browser_api_url: "https://api.browser.tinyfish.ai"
+  fetch_api_url: "https://api.fetch.tinyfish.ai"
+  timeout_seconds: 60
 
 storage:
   db_path: "./data/omni_scraper.db"

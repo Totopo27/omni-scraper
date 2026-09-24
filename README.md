@@ -56,12 +56,23 @@ omni-scraper doctor
 omni-scraper --cdp-url http://localhost:9222 doctor
 ```
 
-### 3. Inspeccionar Estadísticas de Almacenamiento
+### 3. Navegación en la Nube con TinyFish (Cloud Stealth CDP)
+```powershell
+$env:TINYFISH_API_KEY="tu_api_key"
+omni-scraper --provider tinyfish scrape --platform reddit --target python
+```
+
+### 4. Extracción Rápida sin Navegador (TinyFish Fetch API)
+```powershell
+omni-scraper fetch https://news.ycombinator.com/ --format markdown
+```
+
+### 5. Inspeccionar Estadísticas de Almacenamiento
 ```powershell
 omni-scraper db stats
 ```
 
-### 4. Purgar Datos Antiguos (Retención)
+### 6. Purgar Datos Antiguos (Retención)
 ```powershell
 # Purgar ítems de más de 30 días y compactar espacio en disco
 omni-scraper db purge --days 30 --force

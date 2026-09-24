@@ -27,14 +27,32 @@ class TestCLIParser(unittest.TestCase):
 
     def test_global_browser_flags_parsing(self):
         args = self.parser.parse_args([
+            "--provider", "tinyfish",
             "--headless",
             "--cdp-url", "http://localhost:9222",
             "--browser", "chrome",
             "doctor"
         ])
+        self.assertEqual(args.provider, "tinyfish")
         self.assertTrue(args.headless)
         self.assertEqual(args.cdp_url, "http://localhost:9222")
         self.assertEqual(args.browser, "chrome")
+
+    def test_fetch_command_parsing(self):
+        args = self.parser.parse_args([
+            "fetch", "https://example.com/article", "--format", "html"
+        ])
+        self.assertEqual(args.command, "fetch")
+        self.assertEqual(args.url, "https://example.com/article")
+        self.assertEqual(args.format, "html")
+
+    def test_fetch_command_default_format(self):
+        args = self.parser.parse_args([
+            "fetch", "https://example.com/article"
+        ])
+        self.assertEqual(args.command, "fetch")
+        self.assertEqual(args.url, "https://example.com/article")
+        self.assertEqual(args.format, "markdown")
 
 
 if __name__ == "__main__":

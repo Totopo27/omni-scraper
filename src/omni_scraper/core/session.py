@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Optional, Tuple
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
-from omni_scraper.config import BrowserConfig
+from omni_scraper.config import BrowserConfig, TinyFishConfig
+from omni_scraper.core.tinyfish import TinyFishClient
 
 
 SANITIZED_STEALTH_JS = """
@@ -67,14 +68,16 @@ def resolve_browser_executable(browser_type: str, explicit_path: Optional[str] =
 class BrowserSession:
     """Manages a persistent Chromium session or external CDP connection with anti-detection flags."""
 
-    def __init__(self, config: BrowserConfig):
+    def __init__(self, config: BrowserConfig, tinyfish_config: Optional[TinyFishConfig] = None):
         self.config = config
+        self.tinyfish_config = tinyfish_config or TinyFishConfig()
         profile_dir = getattr(config, "user_data_dir", None) or getattr(config, "profile_dir", "./browser_profile")
         self.profile_path = Path(profile_dir).resolve()
         self.profile_path.mkdir(parents=True, exist_ok=True)
         self._playwright = None
         self._context: Optional[BrowserContext] = None
         self._browser = None
+        self._tinyfish_session_id: Optional[str] = None
 
     def __enter__(self) -> Tuple[BrowserContext, Page]:
         return self.start()
@@ -87,6 +90,31 @@ class BrowserSession:
         headless = self.config.headless if override_headless is None else override_headless
 
         self._playwright = sync_playwright().start()
+
+        # TinyFish Cloud CDP Provider Mode
+        if self.config.provider == "tinyfish":
+            api_key = self.tinyfish_config.get_api_key()
+            if not api_key:
+                raise ValueError("TinyFish API key is required when provider='tinyfish'. Set TINYFISH_API_KEY or configure in yaml.")
+
+            client = TinyFishClient(
+                api_key=api_key,
+                browser_api_url=self.tinyfish_config.browser_api_url,
+                fetch_api_url=self.tinyfish_config.fetch_api_url,
+                timeout_seconds=self.tinyfish_config.timeout_seconds,
+            )
+            session_data = client.create_browser_session()
+            cdp_url = session_data.get("cdp_url")
+            if not cdp_url:
+                raise ValueError("TinyFish did not return a valid cdp_url.")
+            self._tinyfish_session_id = session_data.get("session_id")
+
+            self._browser = self._playwright.chromium.connect_over_cdp(cdp_url)
+            contexts = self._browser.contexts
+            self._context = contexts[0] if contexts else self._browser.new_context()
+            pages = self._context.pages
+            page = pages[0] if pages else self._context.new_page()
+            return self._context, page
 
         # External CDP Mode (e.g. Fortress in Docker, remote Chromium, or Chrome debugging port)
         if self.config.cdp_url:

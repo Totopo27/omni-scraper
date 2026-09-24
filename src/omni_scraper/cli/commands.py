@@ -5,6 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 from omni_scraper.config import OmniConfig
+from omni_scraper.core.tinyfish import TinyFishClient, TinyFishError
 from omni_scraper.doctor.preflight import run_doctor
 from omni_scraper.storage.db import SQLiteRepository
 
@@ -60,6 +61,48 @@ def handle_clean(config: OmniConfig, args) -> None:
     console.print("[green]Limpieza finalizada con éxito.[/green]")
 
 
+def handle_fetch(config: OmniConfig, args) -> None:
+    """Fetch clean Markdown or HTML content from a URL using TinyFish Fetch API."""
+    api_key = config.tinyfish.get_api_key()
+    if not api_key:
+        console.print("[red]Error:[/red] TinyFish API key is required. Set TINYFISH_API_KEY environment variable or configure in YAML.")
+        sys.exit(1)
+
+    client = TinyFishClient(
+        api_key=api_key,
+        browser_api_url=config.tinyfish.browser_api_url,
+        fetch_api_url=config.tinyfish.fetch_api_url,
+        timeout_seconds=config.tinyfish.timeout_seconds,
+    )
+
+    url = args.url
+    fmt = getattr(args, "format", "markdown")
+    console.print(f"[cyan]🌐 Fetching content with TinyFish Fetch API ({fmt}) from:[/cyan] {url}")
+
+    try:
+        response = client.fetch_content([url], format=fmt)
+    except TinyFishError as e:
+        console.print(f"[red]Error fetching content:[/red] {e}")
+        sys.exit(1)
+
+    results = response.get("results", [])
+    errors = response.get("errors", [])
+
+    if errors:
+        for err in errors:
+            console.print(f"[yellow]Aviso/Error devuelto por TinyFish:[/yellow] {err}")
+
+    if not results:
+        console.print("[yellow]No se obtuvo contenido en la respuesta.[/yellow]")
+        return
+
+    for item in results:
+        target_url = item.get("url", url)
+        content = item.get("content", "")
+        console.print(f"\n[green]=== Resultados para {target_url} ===[/green]")
+        console.print(content)
+
+
 def handle_scrape(config: OmniConfig, args) -> None:
     """Execute scraping with the requested platform adapter."""
     import time
@@ -74,7 +117,7 @@ def handle_scrape(config: OmniConfig, args) -> None:
         sys.exit(1)
 
     scraper = scraper_cls()
-    session = BrowserSession(config.browser)
+    session = BrowserSession(config.browser, tinyfish_config=config.tinyfish)
 
     target = args.target
     limit = getattr(args, "limit", 10)

@@ -11,11 +11,13 @@ if sys.platform == "win32":
         pass
 
 from omni_scraper.config import load_config
-from omni_scraper.cli.commands import handle_clean, handle_db, handle_doctor
+from omni_scraper.cli.commands import handle_clean, handle_db, handle_doctor, handle_fetch
 
 
 def apply_cli_overrides(config, args):
     """Apply command line arguments onto the configuration instance."""
+    if getattr(args, "provider", None):
+        config.browser.provider = args.provider
     if getattr(args, "headless", False):
         config.browser.headless = True
     if getattr(args, "cdp_url", None):
@@ -37,6 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         default=None,
         help="Path to YAML configuration file",
+    )
+    parser.add_argument(
+        "--provider",
+        choices=["local", "tinyfish"],
+        default=None,
+        help="Browser provider ('local' or 'tinyfish')",
     )
     parser.add_argument(
         "--headless",
@@ -83,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
     scrape_parser.add_argument("--target", required=True, help="Target subreddit, topic, or section (e.g. 'solana', 'python', 'top')")
     scrape_parser.add_argument("--limit", type=int, default=10, help="Maximum items to extract (default: 10)")
 
+    # 5. Fetch command (TinyFish Fetch API)
+    fetch_parser = subparsers.add_parser("fetch", help="Fetch clean Markdown/HTML using TinyFish Fetch API")
+    fetch_parser.add_argument("url", help="URL to fetch")
+    fetch_parser.add_argument("--format", choices=["markdown", "html", "json"], default="markdown", help="Output format")
+
     return parser
 
 
@@ -99,6 +112,8 @@ def main() -> None:
         handle_db(config, args)
     elif args.command == "clean":
         handle_clean(config, args)
+    elif args.command == "fetch":
+        handle_fetch(config, args)
     elif args.command == "scrape":
         from omni_scraper.cli.commands import handle_scrape
         handle_scrape(config, args)

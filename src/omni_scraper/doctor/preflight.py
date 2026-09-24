@@ -71,6 +71,21 @@ def check_database_health(db_path: str) -> Tuple[bool, str]:
         return False, f"Fallo al conectar con la base de datos: {e}"
 
 
+def check_tinyfish_status(config: OmniConfig) -> Tuple[bool, str]:
+    """Check if TinyFish configuration is valid when key or provider is present."""
+    api_key = config.tinyfish.get_api_key()
+    is_provider = config.browser.provider == "tinyfish"
+
+    if not api_key and not is_provider:
+        return True, "No configurado (opcional)"
+
+    if is_provider and not api_key:
+        return False, "Provider es 'tinyfish' pero TINYFISH_API_KEY no está configurada"
+
+    masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key or "") > 8 else "***"
+    return True, f"Configurado (Key: {masked_key}, Browser: {config.tinyfish.browser_api_url})"
+
+
 def run_doctor(config: OmniConfig) -> bool:
     """Run all pre-flight checks and display a rich diagnostic table."""
     table = Table(title="🏥 Omni-Scraper Pre-Flight Diagnostics")
@@ -104,6 +119,11 @@ def run_doctor(config: OmniConfig) -> bool:
     db_ok, db_msg = check_database_health(config.storage.db_path)
     all_ok = all_ok and db_ok
     table.add_row("Base SQLite", "✅ OK" if db_ok else "❌ ERROR", db_msg)
+
+    # 5. TinyFish Integration Check (if configured or enabled)
+    tf_ok, tf_msg = check_tinyfish_status(config)
+    all_ok = all_ok and tf_ok
+    table.add_row("TinyFish API", "✅ OK" if tf_ok else "❌ ERROR", tf_msg)
 
     console.print(table)
     return all_ok
